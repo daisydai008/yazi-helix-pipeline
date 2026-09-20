@@ -1,0 +1,5 @@
+#!/bin/sh
+# Keep the downloaded Ubuntu preview libraries isolated to this process.
+prefix="$HOME/.local/opt/yazi-preview"
+export LD_LIBRARY_PATH="$prefix/usr/lib/x86_64-linux-gnu${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+exec "$prefix/usr/bin/chafa" "$@"

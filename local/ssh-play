@@ -1,0 +1,79 @@
+#!/bin/bash
+# ssh-play — play a video from any SSH-reachable host on this Mac.
+#
+# Default: stream over SSH (remote ffmpeg remuxes to stdout, local mpv plays
+# the pipe). Nothing is saved locally or modified remotely.
+#
+# Usage:
+#   ssh-play /abs/path/on/remote/video.mp4          # uses default host
+#   ssh-play --host user@1.2.3.4 /abs/path/video.mp4
+#   ssh-play --download [..] video.mp4              # keep a local copy instead
+#
+# Default host: ~/.config/ssh-play/default-host (written by install.sh),
+# or SSH_PLAY_HOST env var.
+set -euo pipefail
+mode=stream
+host="${SSH_PLAY_HOST:-}"
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --download) mode=download; shift ;;
+    --host) host="$2"; shift 2 ;;
+    *) break ;;
+  esac
+done
+if [[ $# != 1 ]]; then
+  echo "Usage: ssh-play [--host user@host] [--download] /abs/path/video.mp4" >&2
+  exit 2
+fi
+if [[ -z "$host" ]]; then
+  cfg="$HOME/.config/ssh-play/default-host"
+  [[ -f "$cfg" ]] && host=$(head -1 "$cfg" | tr -d '[:space:]')
+fi
+if [[ -z "$host" ]]; then
+  echo "No host: pass --host user@host, set SSH_PLAY_HOST, or run install.sh" >&2
+  exit 2
+fi
+
+remote_path=$1
+case "$remote_path" in
+  '~/'*) echo "Use an absolute path (/home/user/...), not ~/." >&2; exit 2 ;;
+  /*) ;;
+  *) echo "Expected an absolute remote path." >&2; exit 2 ;;
+esac
+case "$remote_path" in
+  *.mp4|*.MP4|*.mov|*.MOV|*.m4v|*.mkv|*.webm|*.avi) ;;
+  *) echo "Expected a video path (.mp4, .mov, .m4v, .mkv, .webm, .avi)." >&2; exit 2 ;;
+esac
+
+if [[ $mode == stream ]]; then
+  mpv_bin=$(command -v mpv || true)
+  if [[ -z "$mpv_bin" ]]; then
+    echo "mpv not found (brew install mpv); falling back to --download." >&2
+    mode=download
+  fi
+fi
+
+if [[ $mode == stream ]]; then
+  # Remote ffmpeg remuxes any MP4 into a streamable fragmented MP4 on stdout
+  # (no temp files on the remote); mpv plays the pipe with caching.
+  printf 'Streaming from %s: %s\n' "$host" "$remote_path"
+  ssh -o BatchMode=yes -o ConnectTimeout=15 "$host" \
+    "ffmpeg -nostdin -v error -i '$remote_path' -c copy -movflags frag_keyframe+empty_moov -f mp4 -" \
+    | "$mpv_bin" --cache=yes --demuxer-max-bytes=200MiB \
+        --title="${host%%@*}:${remote_path##*/}" \
+        --player-operation-mode=pseudo-gui -
+  exit $?
+fi
+
+cache="$HOME/Library/Caches/ssh-play"
+mkdir -p "$cache"
+chmod 700 "$cache"
+destination=$(mktemp -d "$cache/video.XXXXXX")
+file="$destination/${remote_path##*/}"
+if ! /usr/bin/scp -o BatchMode=yes -o ConnectTimeout=15 -- \
+  "$host:$remote_path" "$file"; then
+  echo "Transfer failed. Check network and SSH access; cache: $destination" >&2
+  exit 1
+fi
+printf 'Downloaded: %s\n' "$file"
+/usr/bin/open "$file"

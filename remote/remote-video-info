@@ -1,0 +1,52 @@
+#!/usr/bin/env python3
+"""Show video metadata and prepare a one-key local playback command.
+
+Over SSH: prints `ssh-play <path>` and copies it to the local machine's
+clipboard via OSC 52, so the user pastes it into a LOCAL terminal and
+presses Enter. The command streams the video by default (nothing saved).
+"""
+import base64
+import os
+from pathlib import Path
+import shlex
+import subprocess
+import sys
+
+LOCAL_CMD = "~/.local/bin/ssh-play"
+
+
+def osc52_copy(text: str) -> bool:
+    """Copy to the local terminal clipboard via OSC 52. Best effort."""
+    if not (os.environ.get("SSH_CONNECTION") or os.environ.get("SSH_TTY")):
+        return False
+    payload = base64.b64encode(text.encode()).decode()
+    try:
+        with open("/dev/tty", "w") as tty:
+            tty.write(f"\033]52;c;{payload}\a")
+            tty.flush()
+        return True
+    except OSError:
+        return False
+
+
+for filename in sys.argv[1:]:
+    path = Path(filename).resolve()
+    print(f"\nVideo: {path}", flush=True)
+    subprocess.run([
+        "/usr/bin/ffprobe", "-v", "error", "-show_entries",
+        "stream=codec_name,width,height,r_frame_rate:format=duration,size",
+        str(path),
+    ], check=False)
+    if os.environ.get("SSH_CONNECTION") or os.environ.get("SSH_TTY"):
+        cmd = LOCAL_CMD + " " + shlex.quote(str(path))
+        print("\nPlay from your LOCAL terminal (streams, no download):")
+        print(cmd)
+        if osc52_copy(cmd):
+            print("OK: command copied to local clipboard -- paste & Enter to play")
+        else:
+            print("(clipboard unavailable, copy the command manually)")
+        print("\nAdd --download to keep a local copy. The remote file is never modified.")
+    else:
+        subprocess.run(["/usr/bin/xdg-open", str(path)], check=False)
+if sys.stdin.isatty():
+    input("\nPress Enter to return to Yazi...")

@@ -1,0 +1,9 @@
+[opener]
+# Explicit path works even when Yazi inherited an old/missing EDITOR value.
+edit = [
+  { run = '"$HOME/.local/bin/hx" "$@"', block = true, desc = "Edit with Helix", for = "unix" },
+]
+# An SSH session cannot display a remote desktop video window on the Mac.
+play = [
+  { run = 'python3 "$HOME/.local/bin/remote-video-info" "$@"', block = true, desc = "Video info / play on Mac", for = "unix" },
+]

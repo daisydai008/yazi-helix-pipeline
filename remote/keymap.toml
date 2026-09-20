@@ -1,0 +1,4 @@
+[mgr]
+prepend_keymap = [
+  { on = "e", run = '''shell '"$HOME/.local/bin/hx" "$@"' --block''', desc = "Edit selected file(s) with Helix (text only)" },
+]
